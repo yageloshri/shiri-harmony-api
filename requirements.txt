@@ -1,7 +1,6 @@
 fastapi
 uvicorn
-python-multipart
-pydub
 librosa
+pydub
 soundfile
-music21
+python-multipart
