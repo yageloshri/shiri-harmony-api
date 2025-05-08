@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: shiri-harmony-api
+    name: chord-detector-api
     env: python
     buildCommand: |
       chmod +x build.sh
