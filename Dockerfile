@@ -1,20 +1,20 @@
-# 1. השתמש בתמונה מבוססת פייתון
+# Dockerfile (תיקון)
 FROM python:3.11-slim
 
-# 2. התקן תלות במערכות כמו fluidsynth
+# התקנת תלות מערכת נדרשת: curl ו־fluidsynth
 RUN apt-get update && \
-    apt-get install -y fluidsynth ffmpeg && \
+    apt-get install -y curl fluidsynth && \
     apt-get clean
 
-# 3. העתק קבצי הקוד שלך
-WORKDIR /app
-COPY . .
-
-# 4. התקן תלות פייתון
+# התקנת ספריות פייתון
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. הורד SoundFont (או תעלה ידנית לריפו שלך)
+# הורדת קובץ SoundFont
 RUN curl -L -o soundfont.sf2 https://member.keymusics.com/downloads/FluidR3_GM.sf2
 
-# 6. הפעל את השרת
+# העתקת קוד האפליקציה
+COPY . .
+
+# הפעלת האפליקציה
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
