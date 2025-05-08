@@ -8,33 +8,21 @@ from collections import Counter
 
 app = FastAPI()
 
-NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F',
-              'F#', 'G', 'G#', 'A', 'A#', 'B']
+# המרת ערכי chroma לאקורדים פשוטים
+NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
-# פונקציה לזיהוי האקורד הפשוט ביותר לפי הטונים הדומיננטיים
-def estimate_chord(chroma_vector):
-    threshold = 0.3 * max(chroma_vector)
-    active_notes = [i for i, val in enumerate(chroma_vector) if val > threshold]
-    if not active_notes:
-        return "N"
+def guess_chord(chroma_vector):
+    top_notes = chroma_vector.argsort()[-3:][::-1]  # שלושת הצלילים החזקים ביותר
+    top_notes.sort()
+    root = top_notes[0]
+    third = (root + 4) % 12  # מז׳ורי ברירת מחדל
+    fifth = (root + 7) % 12
 
-    root = active_notes[0]
-    intervals = [(n - root) % 12 for n in active_notes]
-    intervals_set = set(intervals)
-
-    # תבניות בסיסיות
-    if intervals_set == {0, 4, 7}:
+    if third in top_notes and fifth in top_notes:
         return NOTE_NAMES[root]
-    elif intervals_set == {0, 3, 7}:
-        return NOTE_NAMES[root] + "m"
-    elif intervals_set == {0, 4, 7, 10}:
-        return NOTE_NAMES[root] + "7"
-    elif intervals_set == {0, 3, 7, 10}:
-        return NOTE_NAMES[root] + "m7"
-    elif intervals_set == {0, 4, 7, 11}:
-        return NOTE_NAMES[root] + "maj7"
-    else:
-        return NOTE_NAMES[root] + "?"
+    elif (root + 3) % 12 in top_notes:  # מינור
+        return NOTE_NAMES[root] + 'm'
+    return NOTE_NAMES[root] + '?'  # לא ברור מספיק
 
 @app.post("/chords")
 async def detect_chords(file: UploadFile = File(...)):
@@ -51,23 +39,21 @@ async def detect_chords(file: UploadFile = File(...)):
             audio.export(converted_path, format="wav")
 
         y, sr = librosa.load(converted_path)
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-        times = librosa.frames_to_time(range(chroma.shape[1]), sr=sr)
+        hop_length = sr  # קפיצה של שנייה שלמה
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_length)
 
         chords = []
-        last_chord = ""
         for i, frame in enumerate(chroma.T):
-            chord = estimate_chord(frame)
-            timestamp = round(float(times[i]), 2)
-            if chord != last_chord:
-                chords.append({"chord": chord, "time": timestamp})
-                last_chord = chord
+            chord = guess_chord(frame)
+            time = round(i * (hop_length / sr), 2)
+            if not chords or chords[-1]['chord'] != chord:
+                chords.append({"chord": chord, "time": time})
 
         os.remove(input_path)
         if converted_path != input_path:
             os.remove(converted_path)
 
-        return JSONResponse(content={"chords": chords[:50]})
+        return JSONResponse(content={"chords": chords})
 
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
