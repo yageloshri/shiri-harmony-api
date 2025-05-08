@@ -1,17 +1,17 @@
-# Dockerfile (תיקון)
+# Dockerfile (מתוקן)
 FROM python:3.11-slim
 
-# התקנת תלות מערכת נדרשת: curl ו־fluidsynth
+# התקנת תלות מערכת נדרשת: curl, fluidsynth ו־ffmpeg
 RUN apt-get update && \
-    apt-get install -y curl fluidsynth && \
+    apt-get install -y curl fluidsynth ffmpeg && \
     apt-get clean
 
 # התקנת ספריות פייתון
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# הורדת קובץ SoundFont
-RUN curl -L -o soundfont.sf2 https://member.keymusics.com/downloads/FluidR3_GM.sf2
+# הורדת קובץ SoundFont מ־Google Drive
+RUN curl -L -o soundfont.sf2 "https://drive.google.com/uc?export=download&id=1BSjV97xDdRv4J_CPsUi_TDqpbNk0iOVx"
 
 # העתקת קוד האפליקציה
 COPY . .
