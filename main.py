@@ -4,8 +4,37 @@ import librosa
 import os
 import uuid
 from pydub import AudioSegment
+from collections import Counter
 
 app = FastAPI()
+
+NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F',
+              'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+# פונקציה לזיהוי האקורד הפשוט ביותר לפי הטונים הדומיננטיים
+def estimate_chord(chroma_vector):
+    threshold = 0.3 * max(chroma_vector)
+    active_notes = [i for i, val in enumerate(chroma_vector) if val > threshold]
+    if not active_notes:
+        return "N"
+
+    root = active_notes[0]
+    intervals = [(n - root) % 12 for n in active_notes]
+    intervals_set = set(intervals)
+
+    # תבניות בסיסיות
+    if intervals_set == {0, 4, 7}:
+        return NOTE_NAMES[root]
+    elif intervals_set == {0, 3, 7}:
+        return NOTE_NAMES[root] + "m"
+    elif intervals_set == {0, 4, 7, 10}:
+        return NOTE_NAMES[root] + "7"
+    elif intervals_set == {0, 3, 7, 10}:
+        return NOTE_NAMES[root] + "m7"
+    elif intervals_set == {0, 4, 7, 11}:
+        return NOTE_NAMES[root] + "maj7"
+    else:
+        return NOTE_NAMES[root] + "?"
 
 @app.post("/chords")
 async def detect_chords(file: UploadFile = File(...)):
@@ -26,18 +55,13 @@ async def detect_chords(file: UploadFile = File(...)):
         times = librosa.frames_to_time(range(chroma.shape[1]), sr=sr)
 
         chords = []
-        last_chord = None
+        last_chord = ""
         for i, frame in enumerate(chroma.T):
-            idx = frame.argmax()
-            note = librosa.midi_to_note(idx + 36)  # C3 ומעלה
+            chord = estimate_chord(frame)
             timestamp = round(float(times[i]), 2)
-
-            if note != last_chord:
-                chords.append({
-                    "chord": note,
-                    "time": timestamp
-                })
-                last_chord = note
+            if chord != last_chord:
+                chords.append({"chord": chord, "time": timestamp})
+                last_chord = chord
 
         os.remove(input_path)
         if converted_path != input_path:
