@@ -1,76 +1,72 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
-import librosa
 import os
 import uuid
+import librosa
+import numpy as np
 from pydub import AudioSegment
-from collections import defaultdict
 
 app = FastAPI()
 
-NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+# מיפוי מספרי של כרומה לאקורדים בסיסיים (C, C#, D...)
+NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F',
+              'F#', 'G', 'G#', 'A', 'A#', 'B']
 
-def classify_chord(notes):
-    """מזהה אקורד על בסיס שלישייה פשוטה"""
-    if len(notes) < 3:
-        return None
-
-    notes = sorted(set([librosa.note_to_midi(n) % 12 for n in notes]))  # ignore octave
-    for root in notes:
-        third = (root + 4) % 12
-        minor_third = (root + 3) % 12
-        fifth = (root + 7) % 12
-
-        if third in notes and fifth in notes:
-            return f"{NOTE_NAMES[root]}maj"
-        elif minor_third in notes and fifth in notes:
-            return f"{NOTE_NAMES[root]}min"
-
-    return None
+def detect_chord_from_chroma_vector(vector):
+    """נבחר את האקורד עם הערך הגבוה ביותר"""
+    root_index = np.argmax(vector)
+    return NOTE_NAMES[root_index]
 
 @app.post("/chords")
 async def detect_chords(file: UploadFile = File(...)):
     try:
+        # שמירת קובץ זמני
         uid = uuid.uuid4().hex
         input_path = f"input_{uid}_{file.filename}"
         with open(input_path, "wb") as f:
             f.write(await file.read())
 
-        # המרה ל-WAV
+        # המרה ל-WAV אם צריך
         converted_path = input_path
         if not input_path.lower().endswith(".wav"):
             audio = AudioSegment.from_file(input_path)
             converted_path = f"converted_{uid}.wav"
             audio.export(converted_path, format="wav")
 
+        # טעינה עם librosa
         y, sr = librosa.load(converted_path)
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-        times = librosa.frames_to_time(range(chroma.shape[1]), sr=sr)
+        hop_length = 512
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_length)
 
-        chords = []
-        last_chord = ""
-        last_time = 0.0
-        current_notes = []
-
+        # זיהוי אקורדים גולמי
+        chords_raw = []
         for i, frame in enumerate(chroma.T):
-            active_notes = [NOTE_NAMES[j] for j, val in enumerate(frame) if val > 0.3]
-            if not active_notes:
-                continue
+            chord = detect_chord_from_chroma_vector(frame)
+            time = librosa.frames_to_time(i, sr=sr, hop_length=hop_length)
+            chords_raw.append({"chord": chord, "time": round(time, 2)})
 
-            chord = classify_chord(active_notes) or active_notes[0]
-            chord = chord.replace("?", "")  # מנקה סימן שאלה
+        # סינון כפילויות והוספת זמנים
+        filtered = []
+        for i, curr in enumerate(chords_raw):
+            if i == 0 or curr["chord"] != chords_raw[i-1]["chord"]:
+                filtered.append(curr)
 
-            time = float(times[i])
-            if chord != last_chord or (time - last_time) > 1.5:
-                chords.append({"chord": chord, "time": round(time, 2)})
-                last_chord = chord
-                last_time = time
+        final_chords = []
+        for i in range(len(filtered)):
+            start = filtered[i]["time"]
+            end = filtered[i+1]["time"] if i+1 < len(filtered) else round(librosa.get_duration(y=y, sr=sr), 2)
+            final_chords.append({
+                "chord": filtered[i]["chord"],
+                "start": start,
+                "end": end
+            })
 
+        # ניקוי
         os.remove(input_path)
         if converted_path != input_path:
             os.remove(converted_path)
 
-        return JSONResponse(content={"chords": chords})
+        return JSONResponse(content={"chords": final_chords})
 
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
